@@ -1,27 +1,29 @@
 import NeuralNetworkViewer from '@/components/NeuralNetworkViewer';
-import { Cpu, Activity } from 'lucide-react';
+import { Cpu, ScanEye } from 'lucide-react';
 
 export default function Home() {
     return (
-        <main className="min-h-screen relative flex flex-col bg-slate-950 overflow-hidden">
-            {/* Ambient Background Glow */}
-            <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-500/20 rounded-full blur-[120px] pointer-events-none z-0"></div>
-            <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-purple-500/20 rounded-full blur-[120px] pointer-events-none z-0"></div>
+        <main className="min-h-screen relative flex flex-col bg-[#01020a] overflow-hidden">
+            {/* Ambient Background Glow - Subtle so Bloom stands out */}
+            <div className="absolute top-[-30%] left-[-20%] w-[70%] h-[70%] bg-blue-900/10 rounded-full blur-[150px] pointer-events-none z-0"></div>
+            <div className="absolute bottom-[-30%] right-[-20%] w-[70%] h-[70%] bg-purple-900/10 rounded-full blur-[150px] pointer-events-none z-0"></div>
 
-            {/* Top Bar for OS aesthetic - Glassmorphism */}
-            <header className="h-14 bg-white/[0.02] backdrop-blur-md border-b border-white/10 flex items-center justify-between px-6 z-20 font-mono text-xs text-slate-300">
-                <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 text-blue-400 bg-blue-500/10 px-3 py-1.5 rounded-md border border-blue-500/20">
-                        <Cpu size={16} />
-                        <span className="font-semibold text-blue-100 tracking-wide">NexusCore v2.1</span>
+            {/* Top Bar for OS aesthetic - Ultra Premium Glassmorphism */}
+            <header className="h-16 bg-white/[0.01] backdrop-blur-md border-b border-white/5 flex items-center justify-between px-8 z-20 font-mono text-xs text-slate-300 shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+                <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-3 text-cyan-400 bg-cyan-950/30 px-4 py-2 rounded-lg border border-cyan-800/30 shadow-[inset_0_0_15px_rgba(34,211,238,0.05)]">
+                        <Cpu size={18} />
+                        <span className="font-bold text-cyan-50 tracking-widest text-[11px]">NEXUS CORE <span className="text-cyan-500/50">v3.0</span></span>
                     </div>
-                    <span className="hidden sm:inline opacity-30">|</span>
-                    <span className="hidden sm:inline font-light tracking-wide text-slate-400">Module: Deep Learning Visualizer</span>
+                    <div className="hidden sm:flex items-center gap-3 opacity-40">
+                        <ScanEye size={16} />
+                        <span className="font-light tracking-widest uppercase text-[10px]">Deep Learning Visualizer Module</span>
+                    </div>
                 </div>
                 <div className="flex items-center gap-4">
-                    <span className="flex items-center gap-2 relative border border-green-500/30 bg-green-500/10 px-4 py-1.5 text-green-200 rounded-md">
-                        <span className="absolute -left-1.5 top-2 w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.6)]"></span>
-                        Status: Optimal
+                    <span className="flex items-center gap-3 relative border border-emerald-800/30 bg-emerald-950/30 px-5 py-2 text-emerald-100 rounded-lg shadow-[inset_0_0_15px_rgba(16,185,129,0.05)]">
+                        <span className="absolute -left-1.5 top-2.5 w-3 h-3 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_15px_rgba(52,211,153,0.8)]"></span>
+                        <span className="tracking-widest uppercase font-semibold text-[10px]">System Optimal</span>
                     </span>
                 </div>
             </header>
@@ -29,17 +31,6 @@ export default function Home() {
             {/* Main Content Area */}
             <div className="flex-1 relative z-10">
                 <NeuralNetworkViewer />
-                
-                {/* Overlay Floating Panel */}
-                <div className="absolute bottom-8 left-8 max-w-sm pointer-events-none p-6 rounded-2xl border border-white/10 bg-black/40 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-                    <h2 className="font-mono text-sm font-bold text-white mb-3 flex items-center gap-2 uppercase tracking-widest">
-                        <Activity size={18} className="text-blue-400"/>
-                        Network Topology
-                    </h2>
-                    <p className="text-xs text-slate-300 font-sans leading-relaxed opacity-80">
-                        Real-time 3D visualization of a deep neural network. The synthetic topology consists of 105 active nodes and over 1,800 synaptic connections propagating signals dynamically.
-                    </p>
-                </div>
             </div>
         </main>
     );

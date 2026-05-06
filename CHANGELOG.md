@@ -1,3 +1,14 @@
+## [v0.3.0] - 2026-05-07
+
+### Added
+- Integrated `@react-three/postprocessing` for high-end cinematic Bloom effects.
+- Added 3D Floating Node animations and dynamic light/particle flows along the synaptic connections.
+- Substituted overlapping `Html` DOM labels with native 3D `Text` from `@react-three/drei` for inputs and outputs.
+
+### Changed
+- Massively increased the scale and spatial distribution of the Neural Network layout (`layerSpacing` and `nodeSpacing`), ensuring it completely fills the 3D space rather than grouping in the center.
+- Refined the Glassmorphism UI in `page.tsx` with deeper blur, inset shadow highlights, and ultra-premium color palettes to achieve an authentic "Sci-Fi Spaceship HUD" look.
+
 ## [v0.2.0] - 2026-05-07
 
 ### Added
