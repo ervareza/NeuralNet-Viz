@@ -114,19 +114,30 @@ export default function NeuralNetworkViewer({
         let winnerTime = 0;
 
         const layout = () => {
-            const INPUT_PANEL_W = 160;
-            const OUTPUT_PANEL_W = 140;
-            const netLeft = INPUT_PANEL_W + Math.max(80, width * 0.05); // Give more breathing room on wide screens
-            const netRight = width - OUTPUT_PANEL_W - Math.max(80, width * 0.05);
-            const netW = netRight - netLeft;
+            // Calculate margins to prevent canvas elements from hiding behind the floating dashboard UI
+            // Left panel (Simulation) is ~320px wide + margin. Right panel (Topology) is ~260px wide + margin.
+            const leftPanelSpace = width > 768 ? 340 : 20; 
+            const rightPanelSpace = width > 768 ? 280 : 20;
+            
+            // Space required for the text labels and sine waves outside the node columns
+            const labelSpaceL = 170; 
+            const labelSpaceR = 140;
 
-            const marginTop = height * 0.20;
-            const marginBottom = height * 0.25; 
+            // Define the safe area for the nodes
+            const netLeft = leftPanelSpace + labelSpaceL;
+            const netRight = width - rightPanelSpace - labelSpaceR;
+            // Ensure a minimum width even on extremely squeezed screens
+            const netW = Math.max(netRight - netLeft, 300); 
+
+            // Allow network to take more vertical space, it looks better
+            const marginTop = height * 0.15;
+            const marginBottom = height * 0.20; 
             const usableH = height - marginTop - marginBottom;
 
             nodes.forEach(n => {
                 const count = LAYER_SIZES[n.layer];
-                const spacing = count > 1 ? Math.min(usableH / (count - 1), 35) : 0; // Cap vertical spacing
+                // Cap vertical spacing so nodes don't get too far apart, but allow them to fill space
+                const spacing = count > 1 ? Math.min(usableH / (count - 1), 40) : 0; 
                 const layerHeight = (count - 1) * spacing;
                 const startY = marginTop + (usableH - layerHeight) / 2;
                 
@@ -135,8 +146,7 @@ export default function NeuralNetworkViewer({
                 n.x = netLeft + tVal * netW;
             });
             
-            // Move network slightly to the right to accommodate the floating control panel on the left
-            layoutOffset.x = width > 1200 ? 50 : 0; 
+            layoutOffset.x = 0; 
         };
 
         const resize = () => {
@@ -239,13 +249,13 @@ export default function NeuralNetworkViewer({
                 ctx.stroke();
 
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-                ctx.font = 'bold 9px "JetBrains Mono", monospace';
+                ctx.font = 'bold 10px "JetBrains Mono", monospace';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(name, cx, cardY + 12);
 
                 ctx.fillStyle = `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.8)`;
-                ctx.font = '8px "JetBrains Mono", monospace';
+                ctx.font = '9px "JetBrains Mono", monospace';
                 ctx.fillText(`${count} ${ACTIVATIONS[li]}`, cx, cardY + 26);
             });
 
@@ -257,7 +267,7 @@ export default function NeuralNetworkViewer({
             activeEdges.forEach(e => {
                 const signal = Math.abs(e.source.value * e.weight);
                 const isStrong = signal > 1.5;
-                const baseOp = 0.02 + Math.min(0.25, signal * 0.15) * gI;
+                const baseOp = 0.04 + Math.min(0.25, signal * 0.15) * gI; // Increased baseOp slightly
 
                 const dx = e.target.x - e.source.x;
                 const wigY1 = Math.sin(t * 3 + e.phaseOffset) * wA;
@@ -301,7 +311,7 @@ export default function NeuralNetworkViewer({
             });
 
             ctx.globalCompositeOperation = 'source-over';
-            const NODE_RADIUS = 4.5;
+            const NODE_RADIUS = 5.5; // Increased from 4.5
 
             // --- Nodes ---
             nodes.forEach(n => {
@@ -369,17 +379,17 @@ export default function NeuralNetworkViewer({
                     ctx.fillStyle = '#fde047';
                     const textW = ctx.measureText(INPUTS[i]).width;
                     ctx.beginPath();
-                    ctx.roundRect(labelRightX - textW - 8, n.y - 12, textW + 16, 24, 4);
+                    ctx.roundRect(labelRightX - textW - 8, n.y - 13, textW + 16, 26, 4);
                     ctx.fill();
                     
                     ctx.fillStyle = '#0f172a';
-                    ctx.font = `bold 10px 'JetBrains Mono', monospace`;
+                    ctx.font = `bold 11px 'JetBrains Mono', monospace`; // Increased font
                     ctx.fillText(INPUTS[i], labelRightX, n.y - 3);
                     ctx.font = `9px monospace`;
                     ctx.fillText(n.value.toFixed(3), labelRightX, n.y + 8);
                 } else {
                     ctx.fillStyle = 'rgba(210, 230, 255, 0.9)';
-                    ctx.font = `bold 10px 'JetBrains Mono', monospace`;
+                    ctx.font = `bold 11px 'JetBrains Mono', monospace`; // Increased font
                     ctx.fillText(INPUTS[i], labelRightX, n.y - 3);
                     ctx.fillStyle = 'rgba(100, 150, 255, 0.8)';
                     ctx.font = `9px monospace`;
@@ -400,17 +410,17 @@ export default function NeuralNetworkViewer({
                     ctx.fillStyle = '#fde047';
                     const textW = ctx.measureText(OUTPUTS[n.index]).width;
                     ctx.beginPath();
-                    ctx.roundRect(labelX - 6, n.y - 12, textW + 16, 24, 4);
+                    ctx.roundRect(labelX - 6, n.y - 13, textW + 16, 26, 4);
                     ctx.fill();
 
                     ctx.fillStyle = '#0f172a';
-                    ctx.font = `bold 10px 'JetBrains Mono', monospace`;
+                    ctx.font = `bold 11px 'JetBrains Mono', monospace`; // Increased font
                     ctx.fillText(OUTPUTS[n.index], labelX, n.y - 3);
                     ctx.font = `9px monospace`;
                     ctx.fillText(n.value.toFixed(3), labelX, n.y + 8);
                 } else {
                     ctx.fillStyle = 'rgba(200, 225, 255, 0.8)';
-                    ctx.font = `10px 'JetBrains Mono', monospace`;
+                    ctx.font = `11px 'JetBrains Mono', monospace`; // Increased font
                     ctx.fillText(OUTPUTS[n.index], labelX, n.y - 3);
                     ctx.fillStyle = 'rgba(100, 150, 255, 0.6)';
                     ctx.font = `9px monospace`;

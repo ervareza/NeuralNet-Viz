@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useState, useEffect } from 'react';
-import { motion, useMotionValue, useTransform, useSpring } from 'framer-motion';
+import { motion, useMotionValue, useTransform, useSpring, PanInfo } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
 interface GlassSliderProps {
@@ -72,7 +72,7 @@ export function GlassSlider({
   };
 
   // Drag interaction
-  const handleDrag = (e: any, info: any) => {
+  const handleDrag = (e: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     if (!containerRef.current) return;
     const { width } = containerRef.current.getBoundingClientRect();
     updateValueFromX(info.point.x - containerRef.current.getBoundingClientRect().left, width);
