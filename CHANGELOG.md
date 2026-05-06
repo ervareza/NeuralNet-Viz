@@ -1,3 +1,18 @@
+## [v0.4.0] - 2026-05-07
+
+### Removed
+- Uninstalled all 3D dependencies (`three`, `@react-three/fiber`, `@react-three/drei`, `@react-three/postprocessing`) completely restarting the rendering approach from zero.
+
+### Added
+- Created a pure 2D HTML5 Canvas rendering engine for the Neural Network visualizer.
+- Implemented smooth Bezier Curves (`bezierCurveTo`) for all 1,802 synaptic connections, replacing straight lines.
+- Implemented animated "data flow particles" that travel along the cubic bezier paths between layers.
+- Added native Canvas API `shadowBlur` and `globalCompositeOperation = 'lighter'` for high-performance 2D neon glow without WebGL shaders.
+
+### Changed
+- Re-aligned all UI panels to an ultra-flat, clean 2D glassmorphism aesthetic matching a modern premium web application.
+- Rendered `IN_` and `OUT_` labels natively inside the Canvas API to eliminate HTML overlapping and ensure pixel-perfect alignment.
+
 ## [v0.3.0] - 2026-05-07
 
 ### Added

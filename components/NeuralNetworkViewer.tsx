@@ -1,10 +1,6 @@
 'use client';
 
-import React, { useRef, useMemo, useState } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Text } from '@react-three/drei';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
-import * as THREE from 'three';
+import React, { useEffect, useRef } from 'react';
 
 const INPUT_COUNT = 9;
 const OUTPUT_COUNT = 13;
@@ -12,322 +8,341 @@ const HIDDEN_LAYERS = [18, 27, 22, 16];
 const LAYER_SIZES = [INPUT_COUNT, ...HIDDEN_LAYERS, OUTPUT_COUNT];
 const NUM_LAYERS = LAYER_SIZES.length;
 
-// Precompute node positions
-const createGraph = () => {
-    const nodes: any[] = [];
-    const edges: any[] = [];
+interface Node {
+    id: string;
+    layer: number;
+    index: number;
+    value: number;
+    bias: number;
+    x: number;
+    y: number;
+}
 
-    const layerSpacing = 25; // Massive scale on Z axis
-    const nodeSpacing = 3.5; // Massive scale on Y axis
-    const scatter = 5; // Scatter on X axis to make it 3D volumetric
-
-    // Create Nodes
-    LAYER_SIZES.forEach((size, layerIdx) => {
-        for (let i = 0; i < size; i++) {
-            const x = (Math.random() - 0.5) * scatter; 
-            const y = (i - size / 2) * nodeSpacing;
-            const z = (layerIdx - NUM_LAYERS / 2) * layerSpacing;
-
-            nodes.push({
-                id: `l${layerIdx}-n${i}`,
-                layer: layerIdx,
-                index: i,
-                position: new THREE.Vector3(x, y, z),
-                value: 0.1,
-                bias: Math.random() * 2 - 1,
-            });
-        }
-    });
-
-    // Create Edges
-    for (let l = 0; l < NUM_LAYERS - 1; l++) {
-        const currentNodes = nodes.filter(n => n.layer === l);
-        const nextNodes = nodes.filter(n => n.layer === l + 1);
-        currentNodes.forEach(source => {
-            nextNodes.forEach(target => {
-                edges.push({
-                    source,
-                    target,
-                    weight: (Math.random() - 0.5) * 4,
-                });
-            });
-        });
-    }
-
-    return { nodes, edges };
-};
-
-const NetworkScene = () => {
-    const { nodes, edges } = useMemo(() => createGraph(), []);
-
-    // Refs for InstancedMesh and LineSegments
-    const nodesRef = useRef<THREE.InstancedMesh>(null);
-    const edgesRef = useRef<THREE.LineSegments>(null);
-
-    const [activeOutput, setActiveOutput] = useState<number | null>(null);
-
-    // Precompute Line Geometry Data
-    const { linePositions, lineColors } = useMemo(() => {
-        const positions = new Float32Array(edges.length * 6); // 2 points per edge
-        const colors = new Float32Array(edges.length * 6);
-        edges.forEach((edge, i) => {
-            positions[i * 6] = edge.source.position.x;
-            positions[i * 6 + 1] = edge.source.position.y;
-            positions[i * 6 + 2] = edge.source.position.z;
-
-            positions[i * 6 + 3] = edge.target.position.x;
-            positions[i * 6 + 4] = edge.target.position.y;
-            positions[i * 6 + 5] = edge.target.position.z;
-
-            // Default color
-            for (let j = 0; j < 6; j++) colors[i * 6 + j] = 0.5;
-        });
-        return { linePositions: positions, lineColors: colors };
-    }, [edges]);
-
-    const dummy = useMemo(() => new THREE.Object3D(), []);
-    const color = useMemo(() => new THREE.Color(), []);
-
-    // Helper colors for bloom (intensity multipliers > 1 make it bloom)
-    const colorInput = useMemo(() => new THREE.Color(0.2, 1.0, 0.4).multiplyScalar(2), []);
-    const colorOutputActive = useMemo(() => new THREE.Color(1.0, 0.8, 0.1).multiplyScalar(4), []);
-    const colorOutputIdle = useMemo(() => new THREE.Color(0.1, 0.4, 0.8).multiplyScalar(1), []);
-    const colorHiddenBase = useMemo(() => new THREE.Color(0.05, 0.1, 0.2), []);
-    const colorHiddenActive = useMemo(() => new THREE.Color(0.2, 0.8, 1.0).multiplyScalar(2), []);
-
-    useFrame((state) => {
-        const time = state.clock.getElapsedTime();
-
-        // 1. Simulation Phase
-        nodes.filter(n => n.layer === 0).forEach((n, i) => {
-            // Complex oscillating patterns for inputs
-            n.value = (Math.sin(time * 2.5 + i * 3.0) * Math.cos(time * 1.2 - i) + 1) / 2;
-        });
-
-        for (let l = 1; l < NUM_LAYERS; l++) {
-            const layerNodes = nodes.filter(n => n.layer === l);
-            layerNodes.forEach(target => {
-                let sum = target.bias;
-                const incomingEdges = edges.filter(e => e.target === target);
-                incomingEdges.forEach(e => {
-                    sum += e.source.value * e.weight;
-                });
-                target.value = 1 / (1 + Math.exp(-sum)); // Sigmoid
-            });
-        }
-
-        const outputNodes = nodes.filter(n => n.layer === NUM_LAYERS - 1);
-        let winningOutput = outputNodes[0];
-        outputNodes.forEach(n => {
-            if (n.value > winningOutput.value) winningOutput = n;
-        });
-
-        if (activeOutput !== winningOutput.index) {
-            setActiveOutput(winningOutput.index);
-        }
-
-        // 2. Render Phase (Nodes)
-        if (nodesRef.current) {
-            nodes.forEach((n, i) => {
-                // Floating animation for nodes
-                const floatY = Math.sin(time * 2 + i) * 0.5;
-                const floatX = Math.cos(time * 1.5 + i) * 0.5;
-                dummy.position.set(n.position.x + floatX, n.position.y + floatY, n.position.z);
-
-                // Scale pulse based on value
-                const scale = 0.5 + Math.pow(n.value, 2) * 2.0;
-                dummy.scale.set(scale, scale, scale);
-                dummy.updateMatrix();
-                nodesRef.current!.setMatrixAt(i, dummy.matrix);
-
-                // Color assignment for Bloom
-                const isOutput = n.layer === NUM_LAYERS - 1;
-                const isWinner = isOutput && n === winningOutput;
-
-                if (isWinner) {
-                    color.copy(colorOutputActive);
-                } else if (isOutput) {
-                    color.copy(colorOutputIdle);
-                } else if (n.layer === 0) {
-                    color.copy(colorInput).multiplyScalar(n.value * 0.8 + 0.2); // Dim inputs that are low
-                } else {
-                    color.lerpColors(colorHiddenBase, colorHiddenActive, Math.pow(n.value, 2.0));
-                }
-
-                nodesRef.current!.setColorAt(i, color);
-            });
-            nodesRef.current.instanceMatrix.needsUpdate = true;
-            if (nodesRef.current.instanceColor) nodesRef.current.instanceColor.needsUpdate = true;
-        }
-
-        // 3. Render Phase (Edges)
-        if (edgesRef.current) {
-            const colors = edgesRef.current.geometry.attributes.color.array as Float32Array;
-            const positions = edgesRef.current.geometry.attributes.position.array as Float32Array;
-            
-            edges.forEach((e, i) => {
-                // Flow effect: simulate data traveling along the line
-                const distance = e.source.position.distanceTo(e.target.position);
-                const flowSpeed = time * 4.0;
-                const flowPattern = Math.sin(distance - flowSpeed + i * 0.1) * 0.5 + 0.5;
-                
-                const signal = Math.abs(e.source.value * e.weight);
-                // Highlight active edges dramatically
-                const intensity = Math.min(1.0, signal * 0.8) * flowPattern * 2.5;
-
-                const r = 0.1 + intensity * 0.4;
-                const g = 0.2 + intensity * 0.8;
-                const b = 0.4 + intensity * 1.0;
-
-                // Source color
-                colors[i * 6] = r;
-                colors[i * 6 + 1] = g;
-                colors[i * 6 + 2] = b;
-
-                // Target color
-                colors[i * 6 + 3] = r * 0.2;
-                colors[i * 6 + 4] = g * 0.2;
-                colors[i * 6 + 5] = b * 0.2;
-
-                // Update line positions to match floating nodes
-                const floatY1 = Math.sin(time * 2 + e.source.index) * 0.5;
-                const floatX1 = Math.cos(time * 1.5 + e.source.index) * 0.5;
-                positions[i * 6] = e.source.position.x + floatX1;
-                positions[i * 6 + 1] = e.source.position.y + floatY1;
-                
-                const floatY2 = Math.sin(time * 2 + e.target.index) * 0.5;
-                const floatX2 = Math.cos(time * 1.5 + e.target.index) * 0.5;
-                positions[i * 6 + 3] = e.target.position.x + floatX2;
-                positions[i * 6 + 4] = e.target.position.y + floatY2;
-            });
-            edgesRef.current.geometry.attributes.color.needsUpdate = true;
-            edgesRef.current.geometry.attributes.position.needsUpdate = true;
-        }
-    });
-
-    return (
-        <>
-            <ambientLight intensity={0.5} />
-            
-            {/* Main network nodes */}
-            <instancedMesh ref={nodesRef} args={[undefined, undefined, nodes.length]}>
-                <sphereGeometry args={[0.5, 32, 32]} />
-                <meshBasicMaterial toneMapped={false} />
-            </instancedMesh>
-
-            {/* Network edges */}
-            <lineSegments ref={edgesRef}>
-                <bufferGeometry>
-                    <bufferAttribute attach="attributes-position" args={[linePositions, 3]} />
-                    <bufferAttribute attach="attributes-color" args={[lineColors, 3]} />
-                </bufferGeometry>
-                <lineBasicMaterial vertexColors transparent opacity={0.6} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
-            </lineSegments>
-
-            {/* 3D Labels for Inputs */}
-            {nodes.filter(n => n.layer === 0).map(n => (
-                <Text
-                    key={`label-${n.id}`}
-                    position={[n.position.x - 4, n.position.y, n.position.z]}
-                    fontSize={2}
-                    color="#86efac"
-                    anchorX="right"
-                    anchorY="middle"
-                    material-toneMapped={false}
-                >
-                    IN_{n.index + 1}
-                </Text>
-            ))}
-
-            {/* 3D Labels for Outputs */}
-            {nodes.filter(n => n.layer === NUM_LAYERS - 1).map(n => {
-                const isWinner = activeOutput === n.index;
-                return (
-                    <Text
-                        key={`label-${n.id}`}
-                        position={[n.position.x + 4, n.position.y, n.position.z]}
-                        fontSize={isWinner ? 3.5 : 2}
-                        color={isWinner ? "#fde047" : "#7dd3fc"}
-                        anchorX="left"
-                        anchorY="middle"
-                        material-toneMapped={false}
-                    >
-                        OUT_{String.fromCharCode(65 + n.index)}
-                    </Text>
-                );
-            })}
-            
-            {/* Post Processing for the Neon Glow (Bloom) */}
-            <EffectComposer disableNormalPass multisampling={4}>
-                <Bloom luminanceThreshold={0.5} mipmapBlur luminanceSmoothing={0.5} intensity={2.0} />
-            </EffectComposer>
-        </>
-    );
-};
+interface Edge {
+    source: Node;
+    target: Node;
+    weight: number;
+    // P0, P1, P2, P3 for cubic bezier
+    p0: {x: number, y: number};
+    p1: {x: number, y: number};
+    p2: {x: number, y: number};
+    p3: {x: number, y: number};
+}
 
 export default function NeuralNetworkViewer() {
-    return (
-        <div className="w-full h-full relative cursor-crosshair">
-            {/* Camera moved far back to accommodate massive scale */}
-            <Canvas camera={{ position: [90, 40, 110], fov: 50 }} gl={{ antialias: false }}>
-                {/* Very dark blue-black background */}
-                <color attach="background" args={['#01020a']} />
-                {/* Thick fog to hide edges and blend nicely */}
-                <fog attach="fog" args={['#01020a', 50, 250]} />
-                
-                <NetworkScene />
-                
-                <OrbitControls
-                    enablePan={true}
-                    enableZoom={true}
-                    enableRotate={true}
-                    autoRotate={true}
-                    autoRotateSpeed={0.8} // Faster rotation for cinematic feel
-                    maxDistance={250}
-                    minDistance={30}
-                />
-            </Canvas>
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
-            {/* ---------------- HUD OVERLAYS ---------------- */}
-            {/* Top Right: Stats Panel */}
-            <div className="absolute top-8 right-8 flex flex-col items-end gap-4 pointer-events-none text-xs font-mono">
-                <div className="bg-black/30 backdrop-blur-2xl px-6 py-4 rounded-2xl border border-white/5 shadow-[inset_0_0_20px_rgba(255,255,255,0.02),0_8px_32px_rgba(0,0,0,0.8)] flex items-center gap-6">
-                    <div className="flex flex-col items-end">
-                        <span className="opacity-40 uppercase tracking-widest text-[10px] mb-1">Nodes</span>
-                        <span className="font-semibold text-white text-lg tracking-wider">105</span>
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        const container = containerRef.current;
+        if (!canvas || !container) return;
+
+        const ctx = canvas.getContext('2d', { alpha: false });
+        if (!ctx) return;
+
+        let nodes: Node[] = [];
+        let edges: Edge[] = [];
+
+        // 1. Initialize Graph Data
+        LAYER_SIZES.forEach((size, layerIdx) => {
+            for (let i = 0; i < size; i++) {
+                nodes.push({
+                    id: `l${layerIdx}-n${i}`,
+                    layer: layerIdx,
+                    index: i,
+                    value: 0.1,
+                    bias: Math.random() * 2 - 1,
+                    x: 0,
+                    y: 0
+                });
+            }
+        });
+
+        for (let l = 0; l < NUM_LAYERS - 1; l++) {
+            const currentNodes = nodes.filter(n => n.layer === l);
+            const nextNodes = nodes.filter(n => n.layer === l + 1);
+            currentNodes.forEach(source => {
+                nextNodes.forEach(target => {
+                    edges.push({
+                        source,
+                        target,
+                        weight: (Math.random() - 0.5) * 4,
+                        p0: {x:0, y:0}, p1: {x:0, y:0}, p2: {x:0, y:0}, p3: {x:0, y:0}
+                    });
+                });
+            });
+        }
+
+        // 2. Resize & Layout Logic
+        let width = 0;
+        let height = 0;
+
+        const layout = () => {
+            const marginX = width > 1000 ? 300 : 150;
+            const marginYTop = 80;
+            const marginYBottom = 80;
+            
+            const usableWidth = width - marginX * 2;
+            const usableHeight = height - marginYTop - marginYBottom;
+            const layerSpacing = usableWidth / Math.max(1, NUM_LAYERS - 1);
+
+            // Compute Node Positions
+            nodes.forEach(n => {
+                n.x = marginX + n.layer * layerSpacing;
+                const count = LAYER_SIZES[n.layer];
+                const nodeSpacing = count > 1 ? usableHeight / (count - 1) : 0;
+                const startY = count > 1 ? marginYTop : marginYTop + usableHeight / 2;
+                n.y = startY + n.index * nodeSpacing;
+            });
+
+            // Compute Bezier Control Points for smooth curves
+            edges.forEach(e => {
+                const dx = e.target.x - e.source.x;
+                e.p0 = { x: e.source.x, y: e.source.y };
+                e.p1 = { x: e.source.x + dx * 0.4, y: e.source.y }; // Control point 1 (pull right)
+                e.p2 = { x: e.target.x - dx * 0.4, y: e.target.y }; // Control point 2 (pull left)
+                e.p3 = { x: e.target.x, y: e.target.y };
+            });
+        };
+
+        const resize = () => {
+            width = container.clientWidth;
+            height = container.clientHeight;
+            
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            ctx.scale(dpr, dpr);
+            
+            layout();
+        };
+
+        const resizeObserver = new ResizeObserver(() => resize());
+        resizeObserver.observe(container);
+        resize();
+
+        // 3. Animation Loop
+        let animationFrameId: number;
+        let startTime = Date.now();
+
+        // Helper for cubic bezier interpolation
+        const getBezierPoint = (t: number, p0: number, p1: number, p2: number, p3: number) => {
+            const mt = 1 - t;
+            return mt*mt*mt*p0 + 3*mt*mt*t*p1 + 3*mt*t*t*p2 + t*t*t*p3;
+        };
+
+        const render = () => {
+            const time = (Date.now() - startTime) / 1000;
+
+            // --- A. Simulation ---
+            nodes.filter(n => n.layer === 0).forEach((n, i) => {
+                n.value = (Math.sin(time * 2.0 + i * 1.5) * Math.cos(time * 0.5 - i) + 1) / 2;
+            });
+
+            for (let l = 1; l < NUM_LAYERS; l++) {
+                const layerNodes = nodes.filter(n => n.layer === l);
+                layerNodes.forEach(target => {
+                    let sum = target.bias;
+                    const incomingEdges = edges.filter(e => e.target === target);
+                    incomingEdges.forEach(e => {
+                        sum += e.source.value * e.weight;
+                    });
+                    target.value = 1 / (1 + Math.exp(-sum)); // Sigmoid
+                });
+            }
+
+            const outputNodes = nodes.filter(n => n.layer === NUM_LAYERS - 1);
+            let winningOutput = outputNodes[0];
+            outputNodes.forEach(n => {
+                if (n.value > winningOutput.value) winningOutput = n;
+            });
+
+            // --- B. Rendering ---
+            
+            // Background
+            ctx.fillStyle = '#050914'; // Very deep blue/black
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw subtle background grid
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
+            ctx.lineWidth = 1;
+            const gridSize = 50;
+            ctx.beginPath();
+            for(let x=0; x<=width; x+=gridSize) { ctx.moveTo(x, 0); ctx.lineTo(x, height); }
+            for(let y=0; y<=height; y+=gridSize) { ctx.moveTo(0, y); ctx.lineTo(width, y); }
+            ctx.stroke();
+
+            // Set blend mode for glowing effect
+            ctx.globalCompositeOperation = 'lighter';
+
+            // 1. Draw Edges (Curved)
+            edges.forEach(e => {
+                const signal = Math.abs(e.source.value * e.weight);
+                const opacity = Math.min(0.5, signal * 0.15);
+                
+                ctx.beginPath();
+                ctx.moveTo(e.p0.x, e.p0.y);
+                ctx.bezierCurveTo(e.p1.x, e.p1.y, e.p2.x, e.p2.y, e.p3.x, e.p3.y);
+                
+                ctx.strokeStyle = `rgba(56, 189, 248, ${opacity})`; // sky-400
+                ctx.lineWidth = 0.5 + opacity * 2;
+                ctx.stroke();
+
+                // Draw flowing particles if active
+                if (signal > 0.4) {
+                    // Particle position t goes from 0 to 1 cyclically
+                    // Add an offset so particles are spread out
+                    const speed = 0.4;
+                    let t = (time * speed + (e.source.index * 0.1 + e.target.index * 0.05)) % 1;
+                    
+                    const px = getBezierPoint(t, e.p0.x, e.p1.x, e.p2.x, e.p3.x);
+                    const py = getBezierPoint(t, e.p0.y, e.p1.y, e.p2.y, e.p3.y);
+                    
+                    ctx.beginPath();
+                    ctx.arc(px, py, 1.5, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(134, 239, 172, ${opacity * 4})`; // green glow
+                    ctx.shadowColor = '#86efac';
+                    ctx.shadowBlur = 10;
+                    ctx.fill();
+                    ctx.shadowBlur = 0; // reset
+                }
+            });
+
+            // 2. Draw Nodes
+            nodes.forEach(n => {
+                const isOutput = n.layer === NUM_LAYERS - 1;
+                const isInput = n.layer === 0;
+                const isWinner = isOutput && n === winningOutput;
+
+                const radius = isWinner ? 5 : 3.5;
+                
+                ctx.beginPath();
+                ctx.arc(n.x, n.y, radius, 0, Math.PI * 2);
+                
+                if (isWinner) {
+                    ctx.fillStyle = '#fde047'; // yellow-300
+                    ctx.shadowColor = '#eab308';
+                    ctx.shadowBlur = 20;
+                } else if (isInput) {
+                    ctx.fillStyle = '#4ade80'; // green-400
+                    ctx.shadowColor = '#22c55e';
+                    ctx.shadowBlur = n.value * 15;
+                } else if (isOutput) {
+                    ctx.fillStyle = '#7dd3fc'; // light blue
+                    ctx.shadowColor = '#0ea5e9';
+                    ctx.shadowBlur = n.value * 15;
+                } else {
+                    const intensity = Math.floor(n.value * 255);
+                    ctx.fillStyle = `rgb(${intensity * 0.2}, ${intensity * 0.6}, ${intensity})`;
+                    ctx.shadowColor = `rgb(56, 189, 248)`;
+                    ctx.shadowBlur = n.value * 12;
+                }
+
+                ctx.fill();
+                ctx.shadowBlur = 0; // reset
+            });
+
+            // Reset blend mode for clear text
+            ctx.globalCompositeOperation = 'source-over';
+
+            // 3. Draw Labels
+            ctx.font = '11px "JetBrains Mono", monospace';
+            ctx.textBaseline = 'middle';
+
+            nodes.forEach(n => {
+                const isOutput = n.layer === NUM_LAYERS - 1;
+                const isInput = n.layer === 0;
+                const isWinner = isOutput && n === winningOutput;
+
+                if (isInput) {
+                    ctx.textAlign = 'right';
+                    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                    ctx.fillText(`IN_${n.index + 1}`, n.x - 15, n.y);
+                    
+                    // Small value badge
+                    ctx.fillStyle = '#4ade80';
+                    ctx.font = '10px monospace';
+                    ctx.fillText(n.value.toFixed(2), n.x - 55, n.y);
+                    ctx.font = '11px "JetBrains Mono", monospace'; // reset
+                } 
+                else if (isOutput) {
+                    ctx.textAlign = 'left';
+                    
+                    if (isWinner) {
+                        ctx.fillStyle = 'rgba(253, 224, 71, 0.15)'; // highlight bg
+                        const txt = `OUT_${String.fromCharCode(65 + n.index)}`;
+                        const w = ctx.measureText(txt).width;
+                        ctx.roundRect(n.x + 10, n.y - 12, w + 45, 24, 4);
+                        ctx.fill();
+                        ctx.fillStyle = '#fde047'; // text
+                        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+                    } else {
+                        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                    }
+                    
+                    ctx.fillText(`OUT_${String.fromCharCode(65 + n.index)}`, n.x + 15, n.y);
+                    
+                    ctx.fillStyle = isWinner ? '#fef08a' : '#94a3b8';
+                    ctx.font = '10px monospace';
+                    ctx.fillText(n.value.toFixed(2), n.x + 55, n.y);
+                    ctx.font = '11px "JetBrains Mono", monospace'; // reset
+                }
+            });
+
+            animationFrameId = requestAnimationFrame(render);
+        };
+
+        render();
+
+        return () => {
+            resizeObserver.disconnect();
+            cancelAnimationFrame(animationFrameId);
+        };
+    }, []);
+
+    return (
+        <div ref={containerRef} className="w-full h-full relative bg-[#050914] overflow-hidden">
+            <canvas ref={canvasRef} className="block w-full h-full" />
+            
+            {/* 2D Flat Glassmorphism UI (Overlay) */}
+            <div className="absolute top-8 left-8 p-6 rounded-2xl bg-white/[0.02] backdrop-blur-xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] min-w-[280px] font-mono">
+                <div className="flex items-center gap-3 mb-6 pb-4 border-b border-white/5">
+                    <div className="relative">
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-400"></div>
+                        <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping opacity-75"></div>
                     </div>
-                    <div className="w-px h-8 bg-white/10"></div>
-                    <div className="flex flex-col items-end">
-                        <span className="opacity-40 uppercase tracking-widest text-[10px] mb-1">Synapses</span>
-                        <span className="font-semibold text-cyan-400 text-lg tracking-wider">1,802</span>
+                    <span className="text-white font-bold uppercase tracking-widest text-[11px] opacity-90">Engine Active</span>
+                </div>
+                
+                <div className="space-y-4 text-xs">
+                    <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Learning Rate</span>
+                        <span className="text-cyan-300 font-medium tracking-wide">0.001</span>
                     </div>
-                    <div className="w-px h-8 bg-white/10"></div>
-                    <div className="flex flex-col items-end">
-                        <span className="opacity-40 uppercase tracking-widest text-[10px] mb-1">FPS Target</span>
-                        <span className="font-semibold text-green-400 text-lg tracking-wider">60</span>
+                    <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Optimizer</span>
+                        <span className="text-indigo-300 font-medium tracking-wide">AdamW</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                        <span className="text-slate-400">Architecture</span>
+                        <span className="text-emerald-300 font-medium tracking-wide">2D Bezier Core</span>
                     </div>
                 </div>
             </div>
 
-            {/* Bottom Left: Info Panel */}
-            <div className="absolute bottom-10 left-10 pointer-events-none text-xs font-mono">
-                <div className="bg-black/40 backdrop-blur-3xl p-6 rounded-3xl border border-white/5 shadow-[inset_0_0_30px_rgba(255,255,255,0.03),0_20px_50px_rgba(0,0,0,0.5)] flex flex-col gap-4 w-80">
-                    <div className="flex items-center gap-3 mb-2 pb-4 border-b border-white/5">
-                        <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse shadow-[0_0_15px_rgba(34,197,94,0.6)]"></div>
-                        <span className="text-white font-bold uppercase tracking-widest text-xs">Simulation Active</span>
-                    </div>
-                    <div className="flex justify-between items-center text-slate-300">
-                        <span className="opacity-50">Learning Rate</span>
-                        <span className="text-cyan-300 font-medium bg-cyan-950/50 px-2 py-1 rounded border border-cyan-800/30">0.001</span>
-                    </div>
-                    <div className="flex justify-between items-center text-slate-300">
-                        <span className="opacity-50">Optimizer</span>
-                        <span className="text-purple-300 font-medium bg-purple-950/50 px-2 py-1 rounded border border-purple-800/30">AdamW</span>
-                    </div>
-                    <div className="flex justify-between items-center text-slate-300">
-                        <span className="opacity-50">Render Engine</span>
-                        <span className="text-emerald-300 font-medium bg-emerald-950/50 px-2 py-1 rounded border border-emerald-800/30">WebGL + Bloom</span>
-                    </div>
+            <div className="absolute top-8 right-8 flex flex-col gap-3 font-mono text-xs text-right">
+                <div className="bg-white/[0.02] backdrop-blur-xl px-5 py-3 rounded-xl border border-white/10 shadow-xl flex items-center justify-between gap-6 min-w-[200px]">
+                    <span className="text-slate-400 uppercase text-[10px] tracking-widest">Active Nodes</span>
+                    <span className="text-white font-semibold text-sm">105</span>
+                </div>
+                <div className="bg-white/[0.02] backdrop-blur-xl px-5 py-3 rounded-xl border border-white/10 shadow-xl flex items-center justify-between gap-6 min-w-[200px]">
+                    <span className="text-slate-400 uppercase text-[10px] tracking-widest">Synapses</span>
+                    <span className="text-sky-400 font-semibold text-sm">1,802</span>
+                </div>
+                <div className="bg-white/[0.02] backdrop-blur-xl px-5 py-3 rounded-xl border border-white/10 shadow-xl flex items-center justify-between gap-6 min-w-[200px]">
+                    <span className="text-slate-400 uppercase text-[10px] tracking-widest">Engine Target</span>
+                    <span className="text-emerald-400 font-semibold text-sm">60 FPS</span>
                 </div>
             </div>
         </div>
