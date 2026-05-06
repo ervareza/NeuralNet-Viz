@@ -434,9 +434,6 @@ export default function NeuralNetworkViewer({
 }
 
 // Utility for bezier particle positions
-function getBezierXY(t: number, sx: number, sy: number, cp1x: number, cp1y: number, cp2x: number, cp2y: number, ex: number, ey: number) {
-    return sx; // Simplified for speed, particles follow x roughly
-}
 function getBezierXY(t: number, p0: number, p1: number, p2: number, p3: number) {
     const mt = 1 - t;
     return mt * mt * mt * p0 + 3 * mt * mt * t * p1 + 3 * mt * t * t * p2 + t * t * t * p3;

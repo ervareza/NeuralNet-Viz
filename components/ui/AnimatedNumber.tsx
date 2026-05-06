@@ -9,6 +9,7 @@ interface AnimatedNumberProps {
   duration?: number;
   className?: string;
   delay?: number;
+  style?: React.CSSProperties;
 }
 
 export function AnimatedNumber({ 
@@ -16,7 +17,8 @@ export function AnimatedNumber({
   format = (val) => Math.round(val).toString(), 
   duration = 1,
   className,
-  delay = 0
+  delay = 0,
+  style
 }: AnimatedNumberProps) {
   const count = useMotionValue(0);
   const rounded = useTransform(count, (latest) => format(latest));
@@ -42,7 +44,7 @@ export function AnimatedNumber({
   }, [value, duration, delay, count]);
 
   return (
-    <motion.span className={className}>
+    <motion.span className={className} style={style}>
       {displayValue}
     </motion.span>
   );
