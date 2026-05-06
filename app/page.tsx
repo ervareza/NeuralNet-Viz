@@ -6,8 +6,6 @@ import { HeaderBar } from '@/components/dashboard/HeaderBar';
 import { ControlPanel } from '@/components/dashboard/ControlPanel';
 import { TopologyStats } from '@/components/dashboard/TopologyStats';
 import { ActivityMonitor } from '@/components/dashboard/ActivityMonitor';
-import { ScenarioIndicator } from '@/components/dashboard/ScenarioIndicator';
-import { SCENARIOS } from '@/lib/scenarios';
 
 const THEMES = [
     { name: 'Ocean Cyan',   primary: { r: 56,  g: 189, b: 248 }, secondary: { r: 34,  g: 211, b: 238 } },
@@ -25,18 +23,11 @@ export default function Home() {
 
     // Live data from canvas engine
     const [outputData, setOutputData] = useState<{ name: string; value: number }[]>([]);
-    const [scenarioIdx, setScenarioIdx] = useState(0);
-    const [scenarioProgress, setScenarioProgress] = useState(0);
 
     const theme = THEMES[activeTheme];
 
     const handleOutputUpdate = useCallback((data: { name: string; value: number }[]) => {
         setOutputData(data);
-    }, []);
-
-    const handleScenarioUpdate = useCallback((idx: number, progress: number) => {
-        setScenarioIdx(idx);
-        setScenarioProgress(progress);
     }, []);
 
     return (
@@ -62,7 +53,6 @@ export default function Home() {
                     connectionDensity={connectionDensity}
                     wiggleAmount={wiggleAmount}
                     onOutputUpdate={handleOutputUpdate}
-                    onScenarioUpdate={handleScenarioUpdate}
                 />
             </div>
 
@@ -72,11 +62,6 @@ export default function Home() {
             {/* === Floating Dashboard UI (z-30+) === */}
             <HeaderBar
                 themePrimary={`rgb(${theme.primary.r},${theme.primary.g},${theme.primary.b})`}
-            />
-
-            <ScenarioIndicator
-                scenario={SCENARIOS[scenarioIdx]}
-                progress={scenarioProgress}
             />
 
             <ControlPanel

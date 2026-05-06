@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
-import { SCENARIOS, interpolateToTarget, getScenarioIndex, getScenarioProgress } from '@/lib/scenarios';
 
 const INPUTS = [
     "Hunger Level", "Food Distance", "Smell Fox", "Fox Distance",
@@ -11,7 +10,8 @@ const OUTPUTS = [
     "Go Towards Food", "Eat", "Hide", "Flee", "Idle", "Roaming",
     "Go Towards Water", "Drink", "Suicide", "Die", "Sex", "Alerted", "Sleep"
 ];
-const HIDDEN_LAYERS = [18, 27, 22, 16];
+// Relaksasi layout: jumlah node tersembunyi dikurangi agar lebih luas secara vertikal
+const HIDDEN_LAYERS = [12, 16, 14, 10]; 
 const LAYER_SIZES = [INPUTS.length, ...HIDDEN_LAYERS, OUTPUTS.length];
 const NUM_LAYERS = LAYER_SIZES.length;
 const LAYER_NAMES = ["Inputs", "HL 1", "HL 2", "HL 3", "HL 4", "Outputs"];
@@ -43,12 +43,25 @@ export interface NeuralNetworkViewerProps {
     connectionDensity: number;
     wiggleAmount: number;
     onOutputUpdate?: (data: { name: string; value: number }[]) => void;
-    onScenarioUpdate?: (scenarioIndex: number, progress: number) => void;
 }
+
+// Simple pseudo-random hash function for noise
+const hash = (n: number) => {
+    n = Math.sin(n) * 43758.5453123;
+    return n - Math.floor(n);
+};
+
+// Simple 1D noise for organic data generation
+const noise1D = (x: number) => {
+    const i = Math.floor(x);
+    const f = x - i;
+    const u = f * f * (3.0 - 2.0 * f); 
+    return hash(i) * (1.0 - u) + hash(i + 1) * u;
+};
 
 export default function NeuralNetworkViewer({
     speed, glowIntensity, themePrimary, themeSecondary, connectionDensity, wiggleAmount,
-    onOutputUpdate, onScenarioUpdate
+    onOutputUpdate
 }: NeuralNetworkViewerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -59,6 +72,7 @@ export default function NeuralNetworkViewer({
         screenX: number;
         screenY: number;
     } | null>(null);
+    const hoveredNodeRef = useRef<NodeData | null>(null);
 
     const graphData = useMemo(() => {
         const nodes: NodeData[] = [];
@@ -98,7 +112,7 @@ export default function NeuralNetworkViewer({
         const my = e.clientY - rect.top;
 
         const { nodes } = graphData;
-        const HIT_RADIUS = 12;
+        const HIT_RADIUS = 15;
         let found: NodeData | null = null;
 
         for (const n of nodes) {
@@ -112,13 +126,16 @@ export default function NeuralNetworkViewer({
 
         if (found) {
             setHoveredNode({ node: found, screenX: e.clientX, screenY: e.clientY });
+            hoveredNodeRef.current = found;
         } else {
             setHoveredNode(null);
+            hoveredNodeRef.current = null;
         }
     }, [graphData]);
 
     const handleMouseLeave = useCallback(() => {
         setHoveredNode(null);
+        hoveredNodeRef.current = null;
     }, []);
 
     useEffect(() => {
@@ -141,8 +158,9 @@ export default function NeuralNetworkViewer({
         const layout = () => {
             const leftPanelSpace = width > 768 ? 340 : 20;
             const rightPanelSpace = width > 768 ? 290 : 20;
-            const labelSpaceL = 170;
-            const labelSpaceR = 160;
+            // Diperlebar agar label tidak menabrak node
+            const labelSpaceL = 200; 
+            const labelSpaceR = 190;
 
             const netLeft = leftPanelSpace + labelSpaceL;
             const netRight = width - rightPanelSpace - labelSpaceR;
@@ -154,7 +172,7 @@ export default function NeuralNetworkViewer({
 
             nodes.forEach(n => {
                 const count = LAYER_SIZES[n.layer];
-                const spacing = count > 1 ? Math.min(usableH / (count - 1), 38) : 0;
+                const spacing = count > 1 ? Math.min(usableH / (count - 1), 45) : 0;
                 const layerHeight = (count - 1) * spacing;
                 const startY = marginTop + (usableH - layerHeight) / 2;
 
@@ -183,20 +201,15 @@ export default function NeuralNetworkViewer({
             const t = elapsed * speed;
             frameCount++;
 
-            // --- Scenario-driven data ---
-            const scenarioIdx = getScenarioIndex(elapsed, 8);
-            const scenarioProgress = getScenarioProgress(elapsed, 8);
-            const currentScenario = SCENARIOS[scenarioIdx];
-
-            // Report scenario to parent (throttled to every 10 frames)
-            if (frameCount % 10 === 0 && onScenarioUpdate) {
-                onScenarioUpdate(scenarioIdx, scenarioProgress);
-            }
-
-            // Interpolate inputs toward scenario targets
+            // --- Multi-Frequency Organic Noise Data Generator ---
+            // Pure random organic simulation, no strict scenarios
             nodes.filter(n => n.layer === 0).forEach((n, i) => {
-                const target = currentScenario.targets[i];
-                n.value = interpolateToTarget(n.value, target, 0.03, 0.01);
+                const lowFreq = noise1D(t * 0.2 + n.noiseOffsets.x);
+                const midFreq = noise1D(t * 0.8 + n.noiseOffsets.y) * 0.5;
+                const highFreq = noise1D(t * 2.0 + n.noiseOffsets.z) * 0.2;
+                
+                let val = (lowFreq + midFreq + highFreq) * 1.2 - 0.1;
+                n.value = Math.min(1, Math.max(0, val));
             });
 
             // Forward propagation
@@ -239,6 +252,9 @@ export default function NeuralNetworkViewer({
 
             drawPerspectiveGrid(ctx, width, height, t);
 
+            // Fetch active node for interactive highlight
+            const activeNode = hoveredNodeRef.current;
+
             // --- Layer Info Cards ---
             LAYER_NAMES.forEach((name, li) => {
                 if (li === 0 || li === NUM_LAYERS - 1) return;
@@ -255,29 +271,22 @@ export default function NeuralNetworkViewer({
                 const floatY = Math.sin(t * 2 + li) * 2;
                 const cardY = topNodeY - cardH - 20 + floatY;
 
-                ctx.fillStyle = 'rgba(10, 20, 40, 0.6)';
+                const isLayerActive = activeNode && activeNode.layer === li;
+                const cardOp = activeNode && !isLayerActive ? 0.3 : 0.6;
+
+                ctx.fillStyle = `rgba(10, 20, 40, ${cardOp})`;
                 ctx.beginPath();
                 ctx.roundRect(cardX, cardY, cardW, cardH, 8);
                 ctx.fill();
 
-                const grad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY);
-                grad.addColorStop(0, 'rgba(255,255,255,0)');
-                grad.addColorStop(0.5, `rgba(${themePrimary.r},${themePrimary.g},${themePrimary.b},0.4)`);
-                grad.addColorStop(1, 'rgba(255,255,255,0)');
-                ctx.strokeStyle = grad;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(cardX + 8, cardY);
-                ctx.lineTo(cardX + cardW - 8, cardY);
-                ctx.stroke();
-
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                const textOp = activeNode && !isLayerActive ? 0.4 : 0.9;
+                ctx.fillStyle = `rgba(255, 255, 255, ${textOp})`;
                 ctx.font = 'bold 10px "JetBrains Mono", monospace';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText(name, cx, cardY + 13);
 
-                ctx.fillStyle = `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.7)`;
+                ctx.fillStyle = `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, ${activeNode && !isLayerActive ? 0.3 : 0.7})`;
                 ctx.font = '9px "JetBrains Mono", monospace';
                 ctx.fillText(`${count} ${ACTIVATIONS[li]}`, cx, cardY + 28);
             });
@@ -288,9 +297,16 @@ export default function NeuralNetworkViewer({
             const wA = wiggleAmount;
 
             activeEdges.forEach(e => {
+                // Determine if edge is connected to hovered node
+                const isRelatedToActive = !activeNode || e.source === activeNode || e.target === activeNode;
+                
                 const signal = Math.abs(e.source.value * e.weight);
-                const isStrong = signal > 1.5;
-                const baseOp = 0.04 + Math.min(0.25, signal * 0.15) * gI;
+                const isStrong = signal > 1.5 && isRelatedToActive;
+                
+                // Aggressively dim unrelated edges
+                const baseOp = isRelatedToActive 
+                    ? (0.04 + Math.min(0.25, signal * 0.15) * gI) 
+                    : 0.005; // almost invisible
 
                 const dx = e.target.x - e.source.x;
                 const wigY1 = Math.sin(t * 3 + e.phaseOffset) * wA;
@@ -319,7 +335,7 @@ export default function NeuralNetworkViewer({
                 const cg = isStrong ? 255 : themeSecondary.g;
                 const cb = isStrong ? 255 : themeSecondary.b;
 
-                ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${baseOp * 0.6})`;
+                ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${isRelatedToActive ? baseOp * 0.6 : baseOp})`;
                 ctx.lineWidth = isStrong ? 2 : 1;
                 ctx.stroke();
 
@@ -336,11 +352,18 @@ export default function NeuralNetworkViewer({
             // --- Nodes ---
             nodes.forEach(n => {
                 const isWinner = n.layer === NUM_LAYERS - 1 && n === winner;
+                const isHovered = activeNode === n;
+                const isRelatedToActive = !activeNode || isHovered || activeEdges.some(e => 
+                    (e.source === n && e.target === activeNode) || 
+                    (e.target === n && e.source === activeNode)
+                );
+                
+                const nodeOpMultiplier = isRelatedToActive ? 1 : 0.15;
 
                 if (isWinner) {
                     const timeSinceWin = elapsed - winnerTime;
                     const pulseRadius = NODE_RADIUS + (timeSinceWin * 20) % 25;
-                    const pulseOp = Math.max(0, 1 - (pulseRadius / 25));
+                    const pulseOp = Math.max(0, 1 - (pulseRadius / 25)) * nodeOpMultiplier;
                     ctx.beginPath();
                     ctx.arc(n.x, n.y, pulseRadius, 0, Math.PI * 2);
                     ctx.strokeStyle = `rgba(253, 224, 71, ${pulseOp * 0.8})`;
@@ -348,16 +371,20 @@ export default function NeuralNetworkViewer({
                     ctx.stroke();
                 }
 
+                // Node Aura
                 ctx.beginPath();
-                ctx.arc(n.x, n.y, NODE_RADIUS * 2.5, 0, Math.PI * 2);
+                ctx.arc(n.x, n.y, NODE_RADIUS * (isHovered ? 3.5 : 2.5), 0, Math.PI * 2);
                 ctx.fillStyle = isWinner
-                    ? `rgba(250, 220, 0, ${0.4 * gI})`
-                    : `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, ${0.15 * n.value * gI})`;
+                    ? `rgba(250, 220, 0, ${0.4 * gI * nodeOpMultiplier})`
+                    : `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, ${0.15 * n.value * gI * nodeOpMultiplier})`;
                 ctx.fill();
 
+                // Node Core
                 ctx.beginPath();
-                ctx.arc(n.x, n.y, NODE_RADIUS, 0, Math.PI * 2);
-                ctx.fillStyle = isWinner ? '#fde047' : '#ffffff';
+                ctx.arc(n.x, n.y, NODE_RADIUS * (isHovered ? 1.5 : 1), 0, Math.PI * 2);
+                ctx.fillStyle = isWinner 
+                    ? `rgba(253, 224, 71, ${nodeOpMultiplier})` 
+                    : `rgba(255, 255, 255, ${nodeOpMultiplier})`;
                 ctx.fill();
             });
 
@@ -365,12 +392,19 @@ export default function NeuralNetworkViewer({
             const inputNodes = nodes.filter(n => n.layer === 0);
             inputNodes.forEach((n, i) => {
                 const isHighlighted = n.value > 0.75;
-                const labelRightX = n.x - NODE_RADIUS - 50;
-                const sineBoxW = 36;
-                const sineBoxX = n.x - NODE_RADIUS - 10 - sineBoxW;
+                const isRelatedToActive = !activeNode || activeNode === n || activeEdges.some(e => e.source === n && e.target === activeNode);
+                const opMult = isRelatedToActive ? 1 : 0.2;
 
-                ctx.fillStyle = isHighlighted ? `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.2)` : 'rgba(30, 40, 60, 0.3)';
-                ctx.strokeStyle = isHighlighted ? `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.6)` : 'rgba(100, 150, 255, 0.15)';
+                const labelRightX = n.x - NODE_RADIUS - 65; // Pushed further left
+                const sineBoxW = 36;
+                const sineBoxX = n.x - NODE_RADIUS - 15 - sineBoxW; // Sine box pushed left too
+
+                ctx.fillStyle = isHighlighted 
+                    ? `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, ${0.2 * opMult})` 
+                    : `rgba(30, 40, 60, ${0.3 * opMult})`;
+                ctx.strokeStyle = isHighlighted 
+                    ? `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, ${0.6 * opMult})` 
+                    : `rgba(100, 150, 255, ${0.15 * opMult})`;
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.roundRect(sineBoxX, n.y - 10, sineBoxW, 20, 4);
@@ -383,7 +417,9 @@ export default function NeuralNetworkViewer({
                     const wy = n.y + Math.sin(t * 6 + w * 0.4 + i) * 6 * n.value;
                     w === 0 ? ctx.moveTo(wx, wy) : ctx.lineTo(wx, wy);
                 }
-                ctx.strokeStyle = isHighlighted ? '#fde047' : `rgb(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b})`;
+                ctx.strokeStyle = isHighlighted 
+                    ? `rgba(253, 224, 71, ${opMult})` 
+                    : `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, ${opMult})`;
                 ctx.lineWidth = 1.5;
                 ctx.stroke();
 
@@ -391,22 +427,22 @@ export default function NeuralNetworkViewer({
                 ctx.textBaseline = 'middle';
 
                 if (isHighlighted) {
-                    ctx.fillStyle = '#fde047';
+                    ctx.fillStyle = `rgba(253, 224, 71, ${opMult})`;
                     const textW = ctx.measureText(INPUTS[i]).width;
                     ctx.beginPath();
                     ctx.roundRect(labelRightX - textW - 8, n.y - 13, textW + 16, 26, 4);
                     ctx.fill();
 
-                    ctx.fillStyle = '#0f172a';
+                    ctx.fillStyle = `rgba(15, 23, 42, ${opMult})`;
                     ctx.font = `bold 11px 'JetBrains Mono', monospace`;
                     ctx.fillText(INPUTS[i], labelRightX, n.y - 3);
                     ctx.font = `9px monospace`;
                     ctx.fillText(n.value.toFixed(3), labelRightX, n.y + 8);
                 } else {
-                    ctx.fillStyle = 'rgba(210, 230, 255, 0.9)';
+                    ctx.fillStyle = `rgba(210, 230, 255, ${0.9 * opMult})`;
                     ctx.font = `bold 11px 'JetBrains Mono', monospace`;
                     ctx.fillText(INPUTS[i], labelRightX, n.y - 3);
-                    ctx.fillStyle = 'rgba(100, 150, 255, 0.8)';
+                    ctx.fillStyle = `rgba(100, 150, 255, ${0.8 * opMult})`;
                     ctx.font = `9px monospace`;
                     ctx.fillText(n.value.toFixed(3), labelRightX, n.y + 8);
                 }
@@ -416,28 +452,31 @@ export default function NeuralNetworkViewer({
             const outputNodes = nodes.filter(n => n.layer === NUM_LAYERS - 1);
             outputNodes.forEach((n) => {
                 const isWin = n === winner;
-                const labelX = n.x + NODE_RADIUS + 12;
+                const isRelatedToActive = !activeNode || activeNode === n || activeEdges.some(e => e.target === n && e.source === activeNode);
+                const opMult = isRelatedToActive ? 1 : 0.2;
+
+                const labelX = n.x + NODE_RADIUS + 25; // Pushed further right
 
                 ctx.textAlign = 'left';
                 ctx.textBaseline = 'middle';
 
                 if (isWin) {
-                    ctx.fillStyle = '#fde047';
+                    ctx.fillStyle = `rgba(253, 224, 71, ${opMult})`;
                     const textW = ctx.measureText(OUTPUTS[n.index]).width;
                     ctx.beginPath();
                     ctx.roundRect(labelX - 6, n.y - 13, textW + 16, 26, 4);
                     ctx.fill();
 
-                    ctx.fillStyle = '#0f172a';
+                    ctx.fillStyle = `rgba(15, 23, 42, ${opMult})`;
                     ctx.font = `bold 11px 'JetBrains Mono', monospace`;
                     ctx.fillText(OUTPUTS[n.index], labelX, n.y - 3);
                     ctx.font = `9px monospace`;
                     ctx.fillText(n.value.toFixed(3), labelX, n.y + 8);
                 } else {
-                    ctx.fillStyle = 'rgba(200, 225, 255, 0.8)';
+                    ctx.fillStyle = `rgba(200, 225, 255, ${0.8 * opMult})`;
                     ctx.font = `11px 'JetBrains Mono', monospace`;
                     ctx.fillText(OUTPUTS[n.index], labelX, n.y - 3);
-                    ctx.fillStyle = 'rgba(100, 150, 255, 0.6)';
+                    ctx.fillStyle = `rgba(100, 150, 255, ${0.6 * opMult})`;
                     ctx.font = `9px monospace`;
                     ctx.fillText(n.value.toFixed(3), labelX, n.y + 8);
                 }
@@ -448,9 +487,8 @@ export default function NeuralNetworkViewer({
 
         render();
         return () => { ro.disconnect(); cancelAnimationFrame(animFrameId); };
-    }, [connectionDensity, speed, glowIntensity, themePrimary, themeSecondary, wiggleAmount, graphData, onOutputUpdate, onScenarioUpdate]);
+    }, [connectionDensity, speed, glowIntensity, themePrimary, themeSecondary, wiggleAmount, graphData, onOutputUpdate]);
 
-    // Get readable node name
     const getNodeName = (node: NodeData) => {
         if (node.layer === 0) return INPUTS[node.index];
         if (node.layer === NUM_LAYERS - 1) return OUTPUTS[node.index];

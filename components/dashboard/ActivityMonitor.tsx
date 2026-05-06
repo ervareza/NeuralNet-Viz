@@ -141,33 +141,41 @@ export function ActivityMonitor({ outputData, themePrimary }: ActivityMonitorPro
     <GlassCard
       className="absolute bottom-8 right-8 w-72 p-4 flex flex-col gap-3 z-40 pointer-events-auto"
       intensity="high"
-      borderOpacity={0.12}
+      borderOpacity={0.15}
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between border-b border-white/5 pb-2">
         <div className="flex items-center gap-2">
           <Activity size={13} className="text-emerald-400" />
-          <span className="text-[10px] font-mono tracking-[0.15em] uppercase text-white font-semibold">
+          <span className="text-[10px] font-mono tracking-[0.2em] uppercase text-white font-bold text-shadow-sm">
             Signal Monitor
           </span>
         </div>
-        <span className="text-[8px] font-mono text-slate-500 uppercase">Real-time</span>
+        <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_#10b981]" />
+            <span className="text-[8px] font-mono text-emerald-500/80 uppercase tracking-widest">Live</span>
+        </div>
       </div>
 
-      <canvas
-        ref={canvasRef}
-        className="w-full rounded-lg"
-        style={{ height: '80px', background: 'rgba(0,0,0,0.3)' }}
-      />
+      <div className="relative w-full rounded-md overflow-hidden border border-white/5 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] bg-black/40 p-1">
+        <canvas
+          ref={canvasRef}
+          className="w-full block"
+          style={{ height: '85px' }}
+        />
+        {/* Subtle scanline overlay */}
+        <div className="absolute inset-0 pointer-events-none opacity-20" 
+             style={{ background: 'repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(255,255,255,0.1) 1px, rgba(255,255,255,0.1) 2px)' }} />
+      </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap gap-x-3 gap-y-1">
+      <div className="flex flex-wrap gap-x-4 gap-y-2 mt-1">
         {tracesRef.current?.slice(0, 3).map((trace, i) => (
-          <div key={i} className="flex items-center gap-1.5 text-[9px] font-mono text-slate-400">
-            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: TRACE_COLORS[i] }} />
-            <span className="truncate max-w-[70px]">{trace.name || '...'}</span>
+          <div key={i} className="flex items-center gap-1.5 text-[9px] font-mono text-slate-300">
+            <div className="w-2 h-2 rounded-sm shadow-sm" style={{ backgroundColor: TRACE_COLORS[i], boxShadow: `0 0 6px ${TRACE_COLORS[i]}80` }} />
+            <span className="truncate max-w-[70px] uppercase tracking-wider">{trace.name || '...'}</span>
           </div>
         ))}
       </div>
