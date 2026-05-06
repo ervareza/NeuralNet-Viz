@@ -210,7 +210,8 @@ export default function NeuralNetworkViewer({
                     const px = getBezierPoint(t, e.p0.x, e.p1.x, e.p2.x, e.p3.x);
                     const py = getBezierPoint(t, e.p0.y, e.p1.y, e.p2.y, e.p3.y);
                     
-                    const particleOp = opacity * 4 * (glowIntensity / 100);
+                    const edgeOpacity = Math.min(0.5, signal * 0.15);
+                    const particleOp = edgeOpacity * 4 * (glowIntensity / 100);
 
                     // Multi-layer optical glow (no shadowBlur)
                     ctx.beginPath();
