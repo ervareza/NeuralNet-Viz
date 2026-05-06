@@ -1,3 +1,14 @@
+## [v0.5.0] - 2026-05-07
+
+### Added
+- **Full Customization Panel**: A dedicated Glassmorphism sidebar added to the left to control the visualization in real-time.
+- Interactive controls for Flow Speed, Optical Glow Intensity, Synapse Density, and multiple Visual Themes (Cyber Cyan, Neon Purple, Solar Flare).
+- True Glassmorphism aesthetic utilizing animated background mesh gradients that properly refract through `backdrop-blur` panels.
+
+### Changed
+- **Layout Architecture**: The visualization canvas now intelligently sits inside a flex container next to the sidebar, completely fixing the UI overlapping/collision ("nabrak") issues. The network perfectly centers itself in the available space.
+- **Zero-Lag Rendering**: Removed `ctx.shadowBlur` completely (which forces software rendering in many browsers) and replaced it with a multi-layered Optical Glow engine utilizing `globalCompositeOperation = 'lighter'`. This guarantees ultra-smooth 60 FPS hardware acceleration even with thousands of bezier curves and flowing particles.
+
 ## [v0.4.0] - 2026-05-07
 
 ### Removed
