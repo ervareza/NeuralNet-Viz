@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
+import { SCENARIOS, interpolateToTarget, getScenarioIndex, getScenarioProgress } from '@/lib/scenarios';
 
 const INPUTS = [
     "Hunger Level", "Food Distance", "Smell Fox", "Fox Distance",
@@ -24,7 +25,6 @@ interface NodeData {
     bias: number;
     x: number;
     y: number;
-    // For organic movement
     noiseOffsets: { x: number, y: number, z: number };
 }
 
@@ -42,27 +42,23 @@ export interface NeuralNetworkViewerProps {
     themeSecondary: { r: number, g: number, b: number };
     connectionDensity: number;
     wiggleAmount: number;
+    onOutputUpdate?: (data: { name: string; value: number }[]) => void;
+    onScenarioUpdate?: (scenarioIndex: number, progress: number) => void;
 }
 
-// Simple pseudo-random hash function for noise
-const hash = (n: number) => {
-    n = Math.sin(n) * 43758.5453123;
-    return n - Math.floor(n);
-};
-
-// Simple 1D noise for organic data generation
-const noise1D = (x: number) => {
-    const i = Math.floor(x);
-    const f = x - i;
-    const u = f * f * (3.0 - 2.0 * f); // Smoothstep
-    return hash(i) * (1.0 - u) + hash(i + 1) * u;
-};
-
 export default function NeuralNetworkViewer({
-    speed, glowIntensity, themePrimary, themeSecondary, connectionDensity, wiggleAmount
+    speed, glowIntensity, themePrimary, themeSecondary, connectionDensity, wiggleAmount,
+    onOutputUpdate, onScenarioUpdate
 }: NeuralNetworkViewerProps) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    
+    // Node inspector state
+    const [hoveredNode, setHoveredNode] = useState<{
+        node: NodeData;
+        screenX: number;
+        screenY: number;
+    } | null>(null);
 
     const graphData = useMemo(() => {
         const nodes: NodeData[] = [];
@@ -84,13 +80,45 @@ export default function NeuralNetworkViewer({
         for (let l = 0; l < NUM_LAYERS - 1; l++) {
             const cur = nodes.filter(n => n.layer === l);
             const nxt = nodes.filter(n => n.layer === l + 1);
-            cur.forEach(s => nxt.forEach(t => edges.push({ 
-                source: s, target: t, 
+            cur.forEach(s => nxt.forEach(t => edges.push({
+                source: s, target: t,
                 weight: (Math.random() - 0.5) * 4,
                 phaseOffset: Math.random() * Math.PI * 2
             })));
         }
         return { nodes, edges };
+    }, []);
+
+    // Mouse move handler for node inspector
+    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const container = containerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        const { nodes } = graphData;
+        const HIT_RADIUS = 12;
+        let found: NodeData | null = null;
+
+        for (const n of nodes) {
+            const dx = mx - n.x;
+            const dy = my - n.y;
+            if (dx * dx + dy * dy < HIT_RADIUS * HIT_RADIUS) {
+                found = n;
+                break;
+            }
+        }
+
+        if (found) {
+            setHoveredNode({ node: found, screenX: e.clientX, screenY: e.clientY });
+        } else {
+            setHoveredNode(null);
+        }
+    }, [graphData]);
+
+    const handleMouseLeave = useCallback(() => {
+        setHoveredNode(null);
     }, []);
 
     useEffect(() => {
@@ -104,49 +132,36 @@ export default function NeuralNetworkViewer({
         const activeEdges = edges.filter(() => Math.random() * 100 <= connectionDensity);
 
         let width = 0, height = 0;
-        
-        // Dynamic center offset for layout
-        const layoutOffset = { x: 0, y: 0 };
-
         let animFrameId: number;
         const startTime = Date.now();
         let lastWinner: NodeData | null = null;
         let winnerTime = 0;
+        let frameCount = 0;
 
         const layout = () => {
-            // Calculate margins to prevent canvas elements from hiding behind the floating dashboard UI
-            // Left panel (Simulation) is ~320px wide + margin. Right panel (Topology) is ~260px wide + margin.
-            const leftPanelSpace = width > 768 ? 340 : 20; 
-            const rightPanelSpace = width > 768 ? 280 : 20;
-            
-            // Space required for the text labels and sine waves outside the node columns
-            const labelSpaceL = 170; 
-            const labelSpaceR = 140;
+            const leftPanelSpace = width > 768 ? 340 : 20;
+            const rightPanelSpace = width > 768 ? 290 : 20;
+            const labelSpaceL = 170;
+            const labelSpaceR = 160;
 
-            // Define the safe area for the nodes
             const netLeft = leftPanelSpace + labelSpaceL;
             const netRight = width - rightPanelSpace - labelSpaceR;
-            // Ensure a minimum width even on extremely squeezed screens
-            const netW = Math.max(netRight - netLeft, 300); 
+            const netW = Math.max(netRight - netLeft, 300);
 
-            // Allow network to take more vertical space, it looks better
-            const marginTop = height * 0.15;
-            const marginBottom = height * 0.20; 
+            const marginTop = height * 0.14;
+            const marginBottom = height * 0.18;
             const usableH = height - marginTop - marginBottom;
 
             nodes.forEach(n => {
                 const count = LAYER_SIZES[n.layer];
-                // Cap vertical spacing so nodes don't get too far apart, but allow them to fill space
-                const spacing = count > 1 ? Math.min(usableH / (count - 1), 40) : 0; 
+                const spacing = count > 1 ? Math.min(usableH / (count - 1), 38) : 0;
                 const layerHeight = (count - 1) * spacing;
                 const startY = marginTop + (usableH - layerHeight) / 2;
-                
+
                 n.y = startY + n.index * spacing;
                 const tVal = NUM_LAYERS > 1 ? n.layer / (NUM_LAYERS - 1) : 0;
                 n.x = netLeft + tVal * netW;
             });
-            
-            layoutOffset.x = 0; 
         };
 
         const resize = () => {
@@ -166,83 +181,91 @@ export default function NeuralNetworkViewer({
         const render = () => {
             const elapsed = (Date.now() - startTime) / 1000;
             const t = elapsed * speed;
+            frameCount++;
 
-            // --- Organic Data Flow Simulation ---
+            // --- Scenario-driven data ---
+            const scenarioIdx = getScenarioIndex(elapsed, 8);
+            const scenarioProgress = getScenarioProgress(elapsed, 8);
+            const currentScenario = SCENARIOS[scenarioIdx];
+
+            // Report scenario to parent (throttled to every 10 frames)
+            if (frameCount % 10 === 0 && onScenarioUpdate) {
+                onScenarioUpdate(scenarioIdx, scenarioProgress);
+            }
+
+            // Interpolate inputs toward scenario targets
             nodes.filter(n => n.layer === 0).forEach((n, i) => {
-                // Combine multiple noise frequencies for a very organic "breathing/flowing" feel
-                const lowFreq = noise1D(t * 0.2 + n.noiseOffsets.x);
-                const highFreq = noise1D(t * 1.5 + n.noiseOffsets.y) * 0.2;
-                n.value = Math.min(1, Math.max(0, (lowFreq + highFreq) * 1.5 - 0.2));
+                const target = currentScenario.targets[i];
+                n.value = interpolateToTarget(n.value, target, 0.03, 0.01);
             });
-            
+
+            // Forward propagation
             for (let l = 1; l < NUM_LAYERS; l++) {
                 nodes.filter(n => n.layer === l).forEach(tgt => {
                     let sum = tgt.bias;
-                    activeEdges.filter(e => e.target === tgt).forEach(e => { sum += e.source.value * e.weight; });
-                    tgt.value = 1 / (1 + Math.exp(-sum)); // Sigmoid
+                    activeEdges.filter(e => e.target === tgt).forEach(e => {
+                        sum += e.source.value * e.weight;
+                    });
+                    tgt.value = 1 / (1 + Math.exp(-sum));
                 });
             }
-            
+
             const outNodes = nodes.filter(n => n.layer === NUM_LAYERS - 1);
             let winner = outNodes[0];
             outNodes.forEach(n => { if (n.value > winner.value) winner = n; });
-            
+
             if (winner !== lastWinner) {
                 lastWinner = winner;
-                winnerTime = elapsed; // Track when this node became the winner for explosion effect
+                winnerTime = elapsed;
+            }
+
+            // Report outputs to parent (throttled)
+            if (frameCount % 6 === 0 && onOutputUpdate) {
+                onOutputUpdate(outNodes.map(n => ({
+                    name: OUTPUTS[n.index],
+                    value: n.value
+                })));
             }
 
             // --- Background ---
-            ctx.fillStyle = '#020813'; // Very dark, matches page bg
+            ctx.fillStyle = '#020813';
             ctx.fillRect(0, 0, width, height);
-            
-            // Central subtle glow
-            const bgGlow = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, width/1.5);
-            bgGlow.addColorStop(0, `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.05)`);
+
+            const bgGlow = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, width / 1.5);
+            bgGlow.addColorStop(0, `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.04)`);
             bgGlow.addColorStop(1, 'transparent');
             ctx.fillStyle = bgGlow;
             ctx.fillRect(0, 0, width, height);
 
             drawPerspectiveGrid(ctx, width, height, t);
 
-            // Apply layout offset
-            ctx.save();
-            ctx.translate(layoutOffset.x, layoutOffset.y);
-
-            // --- Layer Info Cards (Floating Glass look) ---
+            // --- Layer Info Cards ---
             LAYER_NAMES.forEach((name, li) => {
                 if (li === 0 || li === NUM_LAYERS - 1) return;
-                
                 const layerNodes = nodes.filter(n => n.layer === li);
                 if (layerNodes.length === 0) return;
-                
+
                 const topNodeY = layerNodes[0].y;
                 const count = LAYER_SIZES[li];
                 const cx = layerNodes[0].x;
-                
-                const cardW = 110;
-                const cardH = 40;
-                const cardX = cx - cardW / 2;
-                // Add a slight hover animation effect using sine wave
-                const floatY = Math.sin(t * 2 + li) * 3;
-                const cardY = topNodeY - cardH - 25 + floatY;
 
-                // Glass backdrop
+                const cardW = 115;
+                const cardH = 42;
+                const cardX = cx - cardW / 2;
+                const floatY = Math.sin(t * 2 + li) * 2;
+                const cardY = topNodeY - cardH - 20 + floatY;
+
                 ctx.fillStyle = 'rgba(10, 20, 40, 0.6)';
-                ctx.strokeStyle = `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.3)`;
-                ctx.lineWidth = 1;
-                
-                // Draw pill shape
                 ctx.beginPath();
                 ctx.roundRect(cardX, cardY, cardW, cardH, 8);
                 ctx.fill();
-                
-                // Top highlight border
+
                 const grad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY);
                 grad.addColorStop(0, 'rgba(255,255,255,0)');
-                grad.addColorStop(0.5, 'rgba(255,255,255,0.4)');
+                grad.addColorStop(0.5, `rgba(${themePrimary.r},${themePrimary.g},${themePrimary.b},0.4)`);
                 grad.addColorStop(1, 'rgba(255,255,255,0)');
                 ctx.strokeStyle = grad;
+                ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.moveTo(cardX + 8, cardY);
                 ctx.lineTo(cardX + cardW - 8, cardY);
@@ -252,11 +275,11 @@ export default function NeuralNetworkViewer({
                 ctx.font = 'bold 10px "JetBrains Mono", monospace';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(name, cx, cardY + 12);
+                ctx.fillText(name, cx, cardY + 13);
 
-                ctx.fillStyle = `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.8)`;
+                ctx.fillStyle = `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.7)`;
                 ctx.font = '9px "JetBrains Mono", monospace';
-                ctx.fillText(`${count} ${ACTIVATIONS[li]}`, cx, cardY + 26);
+                ctx.fillText(`${count} ${ACTIVATIONS[li]}`, cx, cardY + 28);
             });
 
             // --- Edges ---
@@ -267,7 +290,7 @@ export default function NeuralNetworkViewer({
             activeEdges.forEach(e => {
                 const signal = Math.abs(e.source.value * e.weight);
                 const isStrong = signal > 1.5;
-                const baseOp = 0.04 + Math.min(0.25, signal * 0.15) * gI; // Increased baseOp slightly
+                const baseOp = 0.04 + Math.min(0.25, signal * 0.15) * gI;
 
                 const dx = e.target.x - e.source.x;
                 const wigY1 = Math.sin(t * 3 + e.phaseOffset) * wA;
@@ -278,12 +301,10 @@ export default function NeuralNetworkViewer({
                 const cp2x = e.target.x - dx * 0.35;
                 const cp2y = e.target.y + wigY2;
 
-                // Flowing particles on strong connections
                 if (isStrong && speed > 0) {
                     const pt = (elapsed * speed * 0.5 + e.phaseOffset) % 1;
                     const px = getBezierXY(pt, e.source.x, cp1x, cp2x, e.target.x);
                     const py = getBezierXY(pt, e.source.y, cp1y, cp2y, e.target.y);
-                    
                     ctx.beginPath();
                     ctx.arc(px, py, 2.5, 0, Math.PI * 2);
                     ctx.fillStyle = `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, ${gI})`;
@@ -293,13 +314,12 @@ export default function NeuralNetworkViewer({
                 ctx.beginPath();
                 ctx.moveTo(e.source.x, e.source.y);
                 ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, e.target.x, e.target.y);
-                
-                // Color mapping: weak = themeSecondary, strong = white
-                const r = isStrong ? 255 : themeSecondary.r;
-                const g = isStrong ? 255 : themeSecondary.g;
-                const b = isStrong ? 255 : themeSecondary.b;
-                
-                ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${baseOp * 0.6})`;
+
+                const cr = isStrong ? 255 : themeSecondary.r;
+                const cg = isStrong ? 255 : themeSecondary.g;
+                const cb = isStrong ? 255 : themeSecondary.b;
+
+                ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${baseOp * 0.6})`;
                 ctx.lineWidth = isStrong ? 2 : 1;
                 ctx.stroke();
 
@@ -311,18 +331,16 @@ export default function NeuralNetworkViewer({
             });
 
             ctx.globalCompositeOperation = 'source-over';
-            const NODE_RADIUS = 5.5; // Increased from 4.5
+            const NODE_RADIUS = 5.5;
 
             // --- Nodes ---
             nodes.forEach(n => {
                 const isWinner = n.layer === NUM_LAYERS - 1 && n === winner;
-                
-                // Pulsing ring for winner
+
                 if (isWinner) {
                     const timeSinceWin = elapsed - winnerTime;
                     const pulseRadius = NODE_RADIUS + (timeSinceWin * 20) % 25;
                     const pulseOp = Math.max(0, 1 - (pulseRadius / 25));
-                    
                     ctx.beginPath();
                     ctx.arc(n.x, n.y, pulseRadius, 0, Math.PI * 2);
                     ctx.strokeStyle = `rgba(253, 224, 71, ${pulseOp * 0.8})`;
@@ -330,15 +348,13 @@ export default function NeuralNetworkViewer({
                     ctx.stroke();
                 }
 
-                // Node Aura
                 ctx.beginPath();
                 ctx.arc(n.x, n.y, NODE_RADIUS * 2.5, 0, Math.PI * 2);
-                ctx.fillStyle = isWinner 
+                ctx.fillStyle = isWinner
                     ? `rgba(250, 220, 0, ${0.4 * gI})`
                     : `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, ${0.15 * n.value * gI})`;
                 ctx.fill();
 
-                // Node Core
                 ctx.beginPath();
                 ctx.arc(n.x, n.y, NODE_RADIUS, 0, Math.PI * 2);
                 ctx.fillStyle = isWinner ? '#fde047' : '#ffffff';
@@ -348,13 +364,13 @@ export default function NeuralNetworkViewer({
             // --- Input Panel ---
             const inputNodes = nodes.filter(n => n.layer === 0);
             inputNodes.forEach((n, i) => {
-                const isHighlighted = n.value > 0.8; 
-                const labelRightX = n.x - NODE_RADIUS - 50; 
+                const isHighlighted = n.value > 0.75;
+                const labelRightX = n.x - NODE_RADIUS - 50;
                 const sineBoxW = 36;
                 const sineBoxX = n.x - NODE_RADIUS - 10 - sineBoxW;
-                
+
                 ctx.fillStyle = isHighlighted ? `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.2)` : 'rgba(30, 40, 60, 0.3)';
-                ctx.strokeStyle = isHighlighted ? `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.6)` : 'rgba(100, 150, 255, 0.2)';
+                ctx.strokeStyle = isHighlighted ? `rgba(${themePrimary.r}, ${themePrimary.g}, ${themePrimary.b}, 0.6)` : 'rgba(100, 150, 255, 0.15)';
                 ctx.lineWidth = 1;
                 ctx.beginPath();
                 ctx.roundRect(sineBoxX, n.y - 10, sineBoxW, 20, 4);
@@ -364,7 +380,6 @@ export default function NeuralNetworkViewer({
                 ctx.beginPath();
                 for (let w = 0; w <= sineBoxW; w++) {
                     const wx = sineBoxX + w;
-                    // Connect organic data to sine wave amplitude
                     const wy = n.y + Math.sin(t * 6 + w * 0.4 + i) * 6 * n.value;
                     w === 0 ? ctx.moveTo(wx, wy) : ctx.lineTo(wx, wy);
                 }
@@ -374,22 +389,22 @@ export default function NeuralNetworkViewer({
 
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'middle';
-                
+
                 if (isHighlighted) {
                     ctx.fillStyle = '#fde047';
                     const textW = ctx.measureText(INPUTS[i]).width;
                     ctx.beginPath();
                     ctx.roundRect(labelRightX - textW - 8, n.y - 13, textW + 16, 26, 4);
                     ctx.fill();
-                    
+
                     ctx.fillStyle = '#0f172a';
-                    ctx.font = `bold 11px 'JetBrains Mono', monospace`; // Increased font
+                    ctx.font = `bold 11px 'JetBrains Mono', monospace`;
                     ctx.fillText(INPUTS[i], labelRightX, n.y - 3);
                     ctx.font = `9px monospace`;
                     ctx.fillText(n.value.toFixed(3), labelRightX, n.y + 8);
                 } else {
                     ctx.fillStyle = 'rgba(210, 230, 255, 0.9)';
-                    ctx.font = `bold 11px 'JetBrains Mono', monospace`; // Increased font
+                    ctx.font = `bold 11px 'JetBrains Mono', monospace`;
                     ctx.fillText(INPUTS[i], labelRightX, n.y - 3);
                     ctx.fillStyle = 'rgba(100, 150, 255, 0.8)';
                     ctx.font = `9px monospace`;
@@ -414,13 +429,13 @@ export default function NeuralNetworkViewer({
                     ctx.fill();
 
                     ctx.fillStyle = '#0f172a';
-                    ctx.font = `bold 11px 'JetBrains Mono', monospace`; // Increased font
+                    ctx.font = `bold 11px 'JetBrains Mono', monospace`;
                     ctx.fillText(OUTPUTS[n.index], labelX, n.y - 3);
                     ctx.font = `9px monospace`;
                     ctx.fillText(n.value.toFixed(3), labelX, n.y + 8);
                 } else {
                     ctx.fillStyle = 'rgba(200, 225, 255, 0.8)';
-                    ctx.font = `11px 'JetBrains Mono', monospace`; // Increased font
+                    ctx.font = `11px 'JetBrains Mono', monospace`;
                     ctx.fillText(OUTPUTS[n.index], labelX, n.y - 3);
                     ctx.fillStyle = 'rgba(100, 150, 255, 0.6)';
                     ctx.font = `9px monospace`;
@@ -428,35 +443,81 @@ export default function NeuralNetworkViewer({
                 }
             });
 
-            ctx.restore(); // Restore layout translation
             animFrameId = requestAnimationFrame(render);
         };
 
         render();
         return () => { ro.disconnect(); cancelAnimationFrame(animFrameId); };
-    }, [connectionDensity, speed, glowIntensity, themePrimary, themeSecondary, wiggleAmount, graphData]);
+    }, [connectionDensity, speed, glowIntensity, themePrimary, themeSecondary, wiggleAmount, graphData, onOutputUpdate, onScenarioUpdate]);
+
+    // Get readable node name
+    const getNodeName = (node: NodeData) => {
+        if (node.layer === 0) return INPUTS[node.index];
+        if (node.layer === NUM_LAYERS - 1) return OUTPUTS[node.index];
+        return `${LAYER_NAMES[node.layer]} — Neuron ${node.index + 1}`;
+    };
 
     return (
-        <div ref={containerRef} className="w-full h-full relative cursor-crosshair">
+        <div
+            ref={containerRef}
+            className="w-full h-full relative cursor-crosshair"
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+        >
             <canvas ref={canvasRef} className="block w-full h-full" />
+
+            {/* Node Inspector Tooltip */}
+            {hoveredNode && (
+                <div
+                    className="fixed z-[100] pointer-events-none"
+                    style={{
+                        left: hoveredNode.screenX + 16,
+                        top: hoveredNode.screenY - 10,
+                    }}
+                >
+                    <div
+                        className="px-4 py-3 rounded-xl border text-xs font-mono space-y-1.5"
+                        style={{
+                            background: 'rgba(6, 14, 36, 0.9)',
+                            backdropFilter: 'blur(20px)',
+                            borderColor: `rgba(${themePrimary.r},${themePrimary.g},${themePrimary.b},0.3)`,
+                            boxShadow: `0 10px 40px rgba(0,0,0,0.6), 0 0 20px rgba(${themePrimary.r},${themePrimary.g},${themePrimary.b},0.1)`,
+                        }}
+                    >
+                        <div className="text-white font-semibold text-[11px]">
+                            {getNodeName(hoveredNode.node)}
+                        </div>
+                        <div className="h-px bg-white/10" />
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px]">
+                            <span className="text-slate-500">Activation</span>
+                            <span style={{ color: `rgb(${themePrimary.r},${themePrimary.g},${themePrimary.b})` }}>
+                                {hoveredNode.node.value.toFixed(4)}
+                            </span>
+                            <span className="text-slate-500">Bias</span>
+                            <span className="text-slate-300">{hoveredNode.node.bias.toFixed(4)}</span>
+                            <span className="text-slate-500">Layer</span>
+                            <span className="text-slate-300">{LAYER_NAMES[hoveredNode.node.layer]}</span>
+                            <span className="text-slate-500">Index</span>
+                            <span className="text-slate-300">#{hoveredNode.node.index}</span>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
 
-// Utility for bezier particle positions
 function getBezierXY(t: number, p0: number, p1: number, p2: number, p3: number) {
     const mt = 1 - t;
     return mt * mt * mt * p0 + 3 * mt * mt * t * p1 + 3 * mt * t * t * p2 + t * t * t * p3;
 }
 
 function drawPerspectiveGrid(ctx: CanvasRenderingContext2D, width: number, height: number, time: number) {
-    const gridTop = height * 0.70;
-    const horizon = height * 0.70;
+    const horizon = height * 0.72;
     const vpX = width * 0.5;
 
     ctx.save();
-    // Grid matches deep blue background
-    ctx.strokeStyle = 'rgba(20, 60, 140, 0.2)'; 
+    ctx.strokeStyle = 'rgba(20, 60, 140, 0.18)';
     ctx.lineWidth = 1;
 
     const numH = 16;
@@ -479,12 +540,12 @@ function drawPerspectiveGrid(ctx: CanvasRenderingContext2D, width: number, heigh
         ctx.stroke();
     }
 
-    const hgrd = ctx.createLinearGradient(0, gridTop - 20, 0, gridTop + 80);
+    const hgrd = ctx.createLinearGradient(0, horizon - 20, 0, horizon + 60);
     hgrd.addColorStop(0, 'transparent');
-    hgrd.addColorStop(0.5, 'rgba(10, 40, 100, 0.4)');
+    hgrd.addColorStop(0.5, 'rgba(10, 40, 100, 0.25)');
     hgrd.addColorStop(1, 'transparent');
     ctx.fillStyle = hgrd;
-    ctx.fillRect(0, gridTop - 20, width, 100);
+    ctx.fillRect(0, horizon - 20, width, 80);
 
     ctx.restore();
 }

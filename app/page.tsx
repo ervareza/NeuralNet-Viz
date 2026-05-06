@@ -1,10 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import NeuralNetworkViewer from '@/components/NeuralNetworkViewer';
 import { HeaderBar } from '@/components/dashboard/HeaderBar';
 import { ControlPanel } from '@/components/dashboard/ControlPanel';
 import { TopologyStats } from '@/components/dashboard/TopologyStats';
+import { ActivityMonitor } from '@/components/dashboard/ActivityMonitor';
+import { ScenarioIndicator } from '@/components/dashboard/ScenarioIndicator';
+import { SCENARIOS } from '@/lib/scenarios';
 
 const THEMES = [
     { name: 'Ocean Cyan',   primary: { r: 56,  g: 189, b: 248 }, secondary: { r: 34,  g: 211, b: 238 } },
@@ -20,7 +23,21 @@ export default function Home() {
     const [wiggleAmount, setWiggle]       = useState(8);
     const [activeTheme, setTheme]         = useState(0);
 
+    // Live data from canvas engine
+    const [outputData, setOutputData] = useState<{ name: string; value: number }[]>([]);
+    const [scenarioIdx, setScenarioIdx] = useState(0);
+    const [scenarioProgress, setScenarioProgress] = useState(0);
+
     const theme = THEMES[activeTheme];
+
+    const handleOutputUpdate = useCallback((data: { name: string; value: number }[]) => {
+        setOutputData(data);
+    }, []);
+
+    const handleScenarioUpdate = useCallback((idx: number, progress: number) => {
+        setScenarioIdx(idx);
+        setScenarioProgress(progress);
+    }, []);
 
     return (
         <main className="h-screen w-screen overflow-hidden bg-[#020813] text-slate-300 relative selection:bg-cyan-900/50">
@@ -29,16 +46,40 @@ export default function Home() {
             <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden mix-blend-screen opacity-40">
                 <div
                     className="absolute -top-1/4 -left-1/4 w-[120%] h-[120%] rounded-full blur-[160px] opacity-20"
-                    style={{ 
-                        background: `radial-gradient(circle, rgba(${theme.primary.r},${theme.primary.g},${theme.primary.b},0.4) 0%, transparent 70%)` 
+                    style={{
+                        background: `radial-gradient(circle, rgba(${theme.primary.r},${theme.primary.g},${theme.primary.b},0.4) 0%, transparent 70%)`
                     }}
                 />
             </div>
 
-            {/* === Floating Dashboard UI === */}
-            <HeaderBar themePrimary={`rgb(${theme.primary.r},${theme.primary.g},${theme.primary.b})`} />
-            
-            <ControlPanel 
+            {/* === Fullscreen Canvas Engine (z-10) === */}
+            <div className="absolute inset-0 z-10">
+                <NeuralNetworkViewer
+                    speed={speed}
+                    glowIntensity={glowIntensity}
+                    themePrimary={theme.primary}
+                    themeSecondary={theme.secondary}
+                    connectionDensity={connectionDensity}
+                    wiggleAmount={wiggleAmount}
+                    onOutputUpdate={handleOutputUpdate}
+                    onScenarioUpdate={handleScenarioUpdate}
+                />
+            </div>
+
+            {/* === Cinematic Vignette (z-20) === */}
+            <div className="absolute inset-0 pointer-events-none z-20 shadow-[inset_0_0_150px_rgba(0,0,0,0.8)]" />
+
+            {/* === Floating Dashboard UI (z-30+) === */}
+            <HeaderBar
+                themePrimary={`rgb(${theme.primary.r},${theme.primary.g},${theme.primary.b})`}
+            />
+
+            <ScenarioIndicator
+                scenario={SCENARIOS[scenarioIdx]}
+                progress={scenarioProgress}
+            />
+
+            <ControlPanel
                 speed={speed} setSpeed={setSpeed}
                 glow={glowIntensity} setGlow={setGlow}
                 density={connectionDensity} setDensity={setDensity}
@@ -48,20 +89,10 @@ export default function Home() {
 
             <TopologyStats />
 
-            {/* Subtle Vignette for cinematic feel */}
-            <div className="absolute inset-0 pointer-events-none z-30 shadow-[inset_0_0_150px_rgba(0,0,0,0.8)]" />
-
-            {/* === Fullscreen Canvas Engine === */}
-            <div className="absolute inset-0 z-10">
-                <NeuralNetworkViewer
-                    speed={speed}
-                    glowIntensity={glowIntensity}
-                    themePrimary={theme.primary}
-                    themeSecondary={theme.secondary}
-                    connectionDensity={connectionDensity}
-                    wiggleAmount={wiggleAmount}
-                />
-            </div>
+            <ActivityMonitor
+                outputData={outputData}
+                themePrimary={theme.primary}
+            />
         </main>
     );
 }
